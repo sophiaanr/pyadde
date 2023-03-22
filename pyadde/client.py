@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import asyncio
 import struct
 from pyadde import util
@@ -11,63 +13,50 @@ import traceback
 from pyarea.directory import area_directory
 from pyarea.file import AreaFile
 import logging
-
-
-
+import pylab
+import sys
 
 _, n = os.path.split(os.path.abspath(__file__))
 
 logger = logging.getLogger(n)
 
-
-ADDE_READ_CHUNK_SIZE = 100*1024
+ADDE_READ_CHUNK_SIZE = 100 * 1024
 VALID_COORD_TYPES = 'A', 'I', 'E'
-
 
 VALID_COORD_POS = 'U', 'C'
 
 
-
 class AddeClient():
-
     __excluded_arg_names__ = 'self',
 
-    def __init__(self, host=None, port=112,  #server related args
-                 #image related args
-
-                 trace=0, version=1,#debug args
-                 project=0, user='XXXX', password='',  #auth args
-                 conn_timeout=5, adir_timeout=10, aget_timeout= 600# timeout args
-
+    def __init__(self, host=None, port=112,  # server related args
+                 trace=0, version=1,  # debug args
+                 project=0, user='XXXX', password='',  # auth args
+                 conn_timeout=5, adir_timeout=10, aget_timeout=600  # timeout args
                  ):
 
-        assert host not in [None,''], f'invalid host {host}'
+        assert host not in [None, ''], f'invalid host {host}'
         self.reader = self.writer = None
         self.generic_args = {}
         for aname, avalue in locals().items():
             if aname in self.__excluded_arg_names__:
                 continue
-            setattr(self,aname, avalue)
-        for n in  'version', 'trace':
+            setattr(self, aname, avalue)
+        for n in 'version', 'trace':
             self.generic_args[n] = getattr(self, n)
         self._binary_content_ = None
-
 
     async def __aenter__(self):
         self.content = self._parse_pubsrv_response_(await self.binary_content())
         self.groups = self._extract_groups_(self.content)
         self.group_names = tuple([e[0] for e in self.groups])
-        #self.sat_bands = await self.satbands()
+        # self.sat_bands = await self.satbands()
 
         return self
 
-
-
-
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        #return await self.close()
-        pass #because the server does not reuse the socket, the requests are made inside one function from scratch every time, that means they are closed theer as well
-
+        # return await self.close()
+        pass  # because the server does not reuse the socket, the requests are made inside one function from scratch every time, that means they are closed there as well
 
     async def close(self):
         if self.reader:
@@ -84,20 +73,18 @@ class AddeClient():
         glist = []
         for gname, gformat in self.groups:
             descr = self._extract_descriptors_(group_name=gname)
-            glist.append({gname:{'format':gformat,'descriptors':dict(descr)}})
+            glist.append({gname: {'format': gformat, 'descriptors': dict(descr)}})
 
         d['groups'] = glist
-        return json.dumps(d,indent=4)
+        return json.dumps(d, indent=4)
 
-    def _create_bin_req_(self, req_type=None, req_text=None, ): #project: 1234, 6999, 0, user: 'XXXX
+    def _create_bin_req_(self, req_type=None, req_text=None, ):  # project: 1234, 6999, 0, user: 'XXXX
         assert req_type is not None, 'invalid req type'
         logger.debug(f'creating bin req "{req_type} {req_text}" to {self.host}')
 
         prj = int(self.project)
 
-
         local_ip_int = [127, 0, 1, 1]
-
 
         server_ip_int = util.host2int(self.host)
 
@@ -131,17 +118,19 @@ class AddeClient():
             zeros = [0] * nzeros
             zeros_bstr = struct.pack('%dB' % nzeros, *zeros)
 
-            req_body = server_ip_bstr + server_port_bstr + client_ip_bstr + user_bstr + project_bstr + password_bstr + service_type_bstr + nbinary_bytes_str + nbytes_req + zeros_bstr + req_text_bstr.encode('ascii')
+            req_body = server_ip_bstr + server_port_bstr + client_ip_bstr + user_bstr + project_bstr + password_bstr + service_type_bstr + nbinary_bytes_str + nbytes_req + zeros_bstr + req_text_bstr.encode(
+                'ascii')
         else:  # the req is smaller
             req_text_bstr = req_text.ljust(120, ' ')
             nbinary_bytes_str = struct.pack('>i', nbinary_bytes)
-            req_body = server_ip_bstr + server_port_bstr + client_ip_bstr + user_bstr + project_bstr + password_bstr + service_type_bstr + nbinary_bytes_str + req_text_bstr.encode('ascii')
+            req_body = server_ip_bstr + server_port_bstr + client_ip_bstr + user_bstr + project_bstr + password_bstr + service_type_bstr + nbinary_bytes_str + req_text_bstr.encode(
+                'ascii')
 
         return preamble + req_body
 
     async def _query_server_(self, req_type=None, req_text=None, read_in_chunks=False, timeout=None):
 
-        bin_req  = self._create_bin_req_(req_type=req_type, req_text=req_text)
+        bin_req = self._create_bin_req_(req_type=req_type, req_text=req_text)
 
         try:
             '''
@@ -160,7 +149,7 @@ class AddeClient():
 
                     # flush
                     await self.writer.drain()
-                    with async_timeout.timeout(timeout=timeout):
+                    async with async_timeout.timeout(timeout):
                         if not read_in_chunks:
                             # # read at once
                             data = await self.reader.read()
@@ -190,7 +179,7 @@ class AddeClient():
                         data = decf.read()
                         ucdl = len(data)
                         logger.debug(
-                            f'server {self.host} has sent {dl} compressed bytes decompressed into {ucdl} bytes  {ucdl/2**20} MB')
+                            f'server {self.host} has sent {dl} compressed bytes decompressed into {ucdl} bytes  {ucdl / 2 ** 20} MB')
                         return data
                     except IOError:
                         total_data.seek(0)
@@ -211,12 +200,7 @@ class AddeClient():
         finally:
             await self.close()
 
-
-
-
-
     def _parse_pubsrv_response_(self, bin_response=None):
-
         """
         Parse the result of the response for PUBLIC.SRV request from the ADDE server
         ADDE feaures security through obscurity.
@@ -232,15 +216,13 @@ class AddeClient():
         R2 is the ending dataset position number
         C is the comment field displayed with DSINFO
 
-
-
         :param bin_response: the input decompressed binary response
         :param data_type: str, the data type serverd by ADDE (IMAGE, TEXT, GRID, NAV, POINT, etc) see what can McIDAS/ADDE serve
         :param kind: str, the format or type of the data type (GVAR, AREA, GEOTIFF, HDF)
         :return: an iterable holding dictionaries for every line in response
         """
-        #the txtg command is not documented. It looks like if it's decompressed lenght is 96 it is an error.
-        #also is the first 2 byres are 4 and 1 it is valid
+        # the txtg command is not documented. It looks like if it's decompressed lenght is 96 it is an error.
+        # also is the first 2 byres are 4 and 1 it is valid
 
         # first read the first 8 bytes and interpret as 2 ints
         offset = 8
@@ -248,17 +230,15 @@ class AddeClient():
         # the second byte is not used, I do not know why, this is why I call it spare
         nbytes, spare = struct.unpack('>2i', bin_response[:offset])
 
-
-        if nbytes == 0 or len(bin_response)==96:  # something went wrong
+        if nbytes == 0 or len(bin_response) == 96:  # something went wrong
             msg = ''.join([e for e in bin_response[12:12 + 72].decode('utf-8') if e.isalpha() or e == ' '])
-            #msg = data_in[12:12 + 72]
+            # msg = data_in[12:12 + 72]
             raise Exception(msg)  # should still be 96 bytes with the error
 
         lines = []
         while nbytes > 0:
             # extract the number of bytes to read
             t_bytes = struct.unpack('>i', bin_response[offset:offset + step])[0]
-
 
             # account foir the previous reading by incrementing offset
             offset += step
@@ -268,7 +248,8 @@ class AddeClient():
 
             txt = struct.unpack('>%ds' % t_bytes, bin_response[offset:offset + nbytes])[0]
             if txt:
-                pairs = txt.decode('ascii').split(',')  # a pair is a string that contains the "=" str character and the left side is the key while the right side is the value. However, it is possible that the value
+                pairs = txt.decode('ascii').split(
+                    ',')  # a pair is a string that contains the "=" str character and the left side is the key while the right side is the value. However, it is possible that the value
 
                 try:
                     line_dict = dict()
@@ -294,7 +275,6 @@ class AddeClient():
 
         return tuple(lines)
 
-
     def _parse_adir_response_(self, bin_response=None):
         """
         Parses a response of  an adir request
@@ -309,10 +289,9 @@ class AddeClient():
 
         """
 
-        dlen = len(bin_response)-8
-        AD_DIRSIZE = 64*4
+        dlen = len(bin_response) - 8
+        AD_DIRSIZE = 64 * 4
         offset = 8
-
 
         numbytes, areanumber = struct.unpack('!2i', bin_response[:8])
 
@@ -324,20 +303,18 @@ class AddeClient():
             msg = ''.join([e for e in bin_response[12:12 + 72].decode('utf-8') if e.isalpha() or e == ' '])
             raise Exception(msg)  # should still be 96 bytes with the error
 
-
         while n < dlen - numbytes:
             start = n + offset
             end = start + AD_DIRSIZE
 
             adir_bytes = bin_response[start:end]
 
-
             ad = area_directory(dir_bytes=adir_bytes)
 
             if ad.comment_count > 0:
                 # cards hold info that can be eventually used (lat lon, res) or just some other staff maybe even bogus
-                csize = ad.comment_count*80
-                cbytes = bin_response[end:end+csize]
+                csize = ad.comment_count * 80
+                cbytes = bin_response[end:end + csize]
 
                 ad.add_comments(comment_bytes=cbytes)
 
@@ -351,16 +328,13 @@ class AddeClient():
 
     def _parse_aget_response_(self, bin_response=None):
         offset = 4
-        numbytes = int.from_bytes(bin_response[:4],'big')
+        numbytes = int.from_bytes(bin_response[:4], 'big')
 
         if numbytes == 0:  # something went wrong
             msg = ''.join([e for e in bin_response[12:12 + 72].decode('utf-8') if e.isalpha() or e == ' '])
             raise Exception(msg)  # should still be 96 bytes with the error
         else:
             return AreaFile(source=bin_response[4:])
-
-
-
 
     def _extract_groups_(self, only_image=True):
         """
@@ -372,7 +346,7 @@ class AddeClient():
             return tuple(set([(d['N1'], d['K']) for d in self.content if
                               ('N1' in d.keys() and 'N2' in d.keys() and 'TYPE' in d.keys()) and d['TYPE'] == 'IMAGE']))
         else:
-            return tuple(set([(d['N1'], d['K'] )for d in self.content if
+            return tuple(set([(d['N1'], d['K']) for d in self.content if
                               ('N1' in d.keys() and 'N2' in d.keys() and 'TYPE' in d.keys())]))
 
     def _extract_descriptors_(self, group_name=None, only_image=True):
@@ -382,17 +356,18 @@ class AddeClient():
         :return: iter(str) with IMAGE descriptors for a the supplied group
         """
         assert group_name, 'The group argument can not be None or ""'
-        groups = self._extract_groups_( only_image=only_image)
-        assert group_name in [e[0] for e in groups], 'The group {0} does not exist on ADDE server. Existing groups are {1}'.format(group_name, str(groups))
+        groups = self._extract_groups_(only_image=only_image)
+        assert group_name in [e[0] for e in
+                              groups], 'The group {0} does not exist on ADDE server. Existing groups are {1}'.format(
+            group_name, str(groups))
         if only_image:
             return tuple(set([(d['N2'], d['C'] if 'C' in d else '') for d in self.content if
                               ('N1' in d.keys() and 'N2' in d.keys() and 'TYPE' in d.keys()) and (
                                       d['N1'].lower() == group_name.lower() and d['TYPE'] == 'IMAGE')]))
         else:
             return tuple(set([(d['N2'], d['C'] if 'C' in d else '') for d in self.content if
-                              ('N1' in d.keys() and 'N2' in d.keys()  and 'TYPE' in d.keys()) and (
+                              ('N1' in d.keys() and 'N2' in d.keys() and 'TYPE' in d.keys()) and (
                                       d['N1'].lower() == group_name.lower())]))
-
 
     async def binary_content(self):
         if self._binary_content_ is None:
@@ -401,10 +376,9 @@ class AddeClient():
             text_req = f'{grp} {descr} FILE=RESOLV.SRV'
 
             self._binary_content_ = await self._query_server_(req_type=req_type, req_text=text_req)
-            if  self._binary_content_ is None:
+            if self._binary_content_ is None:
                 text_req = f'{grp} {descr} FILE=PUBLIC.SRV'
                 self._binary_content_ = await self._query_server_(req_type=req_type, req_text=text_req)
-
 
         return self._binary_content_
 
@@ -416,14 +390,13 @@ class AddeClient():
 
         numbytes = struct.unpack('!1i', bin_response[:4])[0]
 
-
         if numbytes == 0:  # something went wrong
             msg = ''.join([e for e in bin_response[12:12 + 72].decode('utf-8') if e.isalpha() or e == ' '])
             raise Exception(msg)  # should still be 96 bytes with the error
 
-        offset =8
+        offset = 8
         step = 4
-        ns =[]
+        ns = []
         l = None
         nbytes = numbytes
         while nbytes > 0:
@@ -440,22 +413,20 @@ class AddeClient():
             if txt.startswith('Sat'):
                 l = []
             if txt.endswith('EndSat'):
-               v = '\n'.join(l)
-               #print(v)
-               ns.append(v)
-               l = None
+                v = '\n'.join(l)
+                # print(v)
+                ns.append(v)
+                l = None
             if l is not None:
                 l.append(txt)
             offset += nbytes
 
         cont = ''.join(ns)
 
-
-
     def _compose_adir_req_text_(self,
-                              group=None, descriptor=None, position=None,
-                              band=None, day=None, stime=None, etime=None,
-                              aux=None):
+                                group=None, descriptor=None, position=None,
+                                band=None, day=None, stime=None, etime=None,
+                                aux=None):
         """
         creates a string representing an adir request from a set of options(kwargs)
         :param group: str, the ADDE group
@@ -480,9 +451,6 @@ class AddeClient():
         del valid_descr
         assert band is not None, f'Invalid band {band}'
 
-
-
-
         try:
             int(band)
         except Exception as e:
@@ -493,16 +461,13 @@ class AddeClient():
             elif isinstance(band, typing.Iterable):
                 band = ' '.join(map(str, band))
 
-
         position = str(position)
-
 
         if stime:
             if not etime:
                 time = f'{stime} {stime}'
             else:
                 time = f'{stime} {etime}'
-
 
         if position == '':
             lposition = '0 0'
@@ -529,23 +494,21 @@ class AddeClient():
                     except Exception as e:
 
                         lposition = str(position)
-
-
         else:
             lposition = position
 
         pos_str = f'{group} {descriptor} {lposition} '
 
         extra_args = list()
-        extra_args_dict  = dict()
+        extra_args_dict = dict()
 
-       #update generic args from __init__
+        # update generic args from __init__
         extra_args_dict.update(self.generic_args)
 
         # collect
         for e, ev in sorted(extra_args_dict.items()):
             if ev is not None:
-                extra_args.append(f'{e.upper()}={str(ev).upper()}' )
+                extra_args.append(f'{e.upper()}={str(ev).upper()}')
 
         extra_args_str = ' '.join(extra_args) or ''
 
@@ -558,9 +521,9 @@ class AddeClient():
         return req_text
 
     async def adir(self,
-                         group=None, descriptor=None, position=None,
-                         band=None, day=None, stime=None, etime=None,
-                         aux=None,
+                   group=None, descriptor=None, position=None,
+                   band=None, day=None, stime=None, etime=None,
+                   aux=None,
 
                    ):
         """
@@ -583,17 +546,11 @@ class AddeClient():
         """
 
         req_text = self._compose_adir_req_text_(
-
-                                        group=group, descriptor=descriptor, position=position,
-                                        band=band,day=day, stime=stime, etime=etime, aux=aux
-
-
+            group=group, descriptor=descriptor, position=position,
+            band=band, day=day, stime=stime, etime=etime, aux=aux
         )
 
-
-
         bin_resp = await self._query_server_(req_type='adir', req_text=req_text, timeout=self.adir_timeout)
-
 
         adirs = self._parse_adir_response_(bin_response=bin_resp)
 
@@ -609,53 +566,45 @@ class AddeClient():
             adir.text_request = f'adde://{self.host}/adir/{group} {descriptor} BAND={adir.bands[0]} DAY={day} TIME={sts} {sts} {extra_str}'
         return adirs
 
-
-
     def _compose_aget_req_text_(self,
-
                                 group=None, descriptor=None, position=None,  # dataset args
-                                coord_type=None, coord_pos=None, coord_start_dim1=None, coord_start_dim2=None,  # coord args
+                                coord_type=None, coord_pos=None, coord_start_dim1=None, coord_start_dim2=None,
+                                # coord args
                                 nlines=None, nelems=None,  # image props
                                 day=None, stime=None, etime=None,
                                 band=None, unit=None, spac=None, cal=None,
                                 lmag=None, emag=None, doc=None, aux=None
-
                                 ):
-
 
         # first position
         group = str(group)
         descriptor = str(descriptor)
         position = str(position)
 
-
-
-
         dataset_str = f'{group} {descriptor} {position} '
-        #mag business is tricky
-        #form the docs
-        #blow ups are done on the client to conserve transmission bandwidth (default=1);
+        # mag business is tricky
+        # form the docs
+        # blow ups are done on the client to conserve transmission bandwidth (default=1);
         # values must be integers; negative numbers mean a blowdown must be performed
-        #in order to be prefectly accurate the clent should handle blow-up.!!!!
-        #TODO handle blowup . I guess blo
+        # in order to be prefectly accurate the clent should handle blow-up.!!!!
+        # TODO handle blowup . I guess blo
 
-        if lmag is not None:
-            lmagi = int(lmag)
-            if lmagi < 0:
-                nlines = nlines // abs(lmagi)  # seems like whatever the sign of mag the aget does only downsampling??
-            else: # let's ignore pos mag aka blowup.
-                #nlines = nlines * abs(lmagi)
+        # if lmag is not None:
+        #    lmagi = int(lmag)
+        #    if lmagi < 0:
+        #        nlines = nlines // abs(lmagi)  # seems like whatever the sign of mag the aget does only downsampling??
+        #    else: # let's ignore pos mag aka blowup.
+        # nlines = nlines * abs(lmagi)
 
-                lmag = 1
+        #        lmag = 1
 
-
-        if emag is not None:
-            emagi = int(emag)
-            if emagi < 0:
-                nelems = nelems // abs(emagi)  # seems like whatever the sign of mag the aget does only downsampling??
-            else:
-                #nelems = nelems * abs(emagi)
-                emag = 1
+        # if emag is not None:
+        #    emagi = int(emag)
+        #    if emagi < 0:
+        #        nelems = nelems // abs(emagi)  # seems like whatever the sign of mag the aget does only downsampling??
+        #    else:
+        # nelems = nelems * abs(emagi)
+        #        emag = 1
 
         # create the LOCATE from coord_type, coord_pos, coord_start_dim1, coord_start_dim2, nlin, nele
         coord_str = f'{coord_type}{coord_pos} {coord_start_dim1} {coord_start_dim2} X {nlines} {nelems} '
@@ -680,7 +629,7 @@ class AddeClient():
         cal_str = f'CAL={cal} ' if cal else ''
 
         aux_str = f'AUX={aux} ' if aux else ''
-        doc_str = f'DOC={doc} 'if doc else ''
+        doc_str = f'DOC={doc} ' if doc else ''
 
         extra_args = list()
 
@@ -688,25 +637,20 @@ class AddeClient():
         for e, ev in sorted(self.generic_args.items()):
             if ev is not None:
                 extra_args.append(f'{e.upper()}={str(ev).upper()}')
-        #extra_args.append(f'NAV=X')
+        # extra_args.append(f'NAV=X')
         extra_str = ' '.join(extra_args) or ''
 
-
         req_text = f'{dataset_str}{coord_str}{lmag_str}{emag_str}{band_str}{day_str}{time_str}{unit_str}{spac_str}{cal_str}{doc_str}{aux_str}{extra_str}'
-
 
         return req_text
 
     async def aget(self,
-                   group=None, descriptor=None, position=None,  #dataset args
-                   coord_type='A', coord_pos='U', coord_start_dim1=None, coord_start_dim2=None,  #coord args
-                   nlines=None, nelems=None,   #image props
+                   group=None, descriptor=None, position=None,  # dataset args
+                   coord_type='A', coord_pos='U', coord_start_dim1=None, coord_start_dim2=None,  # coord args
+                   nlines=None, nelems=None,  # image props
                    day=None, stime=None, etime=None,
                    band=None, unit=None, spac='X', cal='X',
-                   lmag=1, emag=1, doc='YES', aux='YES',
-
-
-
+                   lmag=1, emag=1, doc='YES', aux='YES', file=None
                    ):
         """
         Request image data. The result is an instance of McIDAS AREA file
@@ -738,6 +682,7 @@ class AddeClient():
         :param emag: element magnification factor, blow ups are done on the client to conserve transmission bandwidth (default=1) values must be integers; negative numbers mean a blowdown must be performed
         :param doc: if YES, include the line documentation block default on server=NO
         :param aux: if YES, additional calibration information is sent, default on server=NO
+        :param file: str, name of output file
         :return: an instance of McIDAS Area file object
 
         ADDE server features inconsistent behaviour for band keyword
@@ -748,7 +693,7 @@ class AddeClient():
 
         #is three numbers are
         """
-        #some of the args will be handled here while others in _compose_aget_req_text_.
+        # some of the args will be handled here while others in _compose_aget_req_text_.
 
         # sanity check
         assert group is not None, f'group  can not be {group}'
@@ -789,12 +734,13 @@ class AddeClient():
                             int(be)
 
                         except Exception as e:
-                            raise Exception(f'Invalid band {band}. In the string form band can be "ALL" or a "start end" ')
+                            raise Exception(
+                                f'Invalid band {band}. In the string form band can be "ALL" or a "start end" ')
 
                     except Exception as e:
                         if not band == 'ALL':
                             pass
-                            #raise Exception(f'Invalid band {band}')
+                            # raise Exception(f'Invalid band {band}')
 
             elif isinstance(band, typing.Iterable):
                 # if len(band) != 2:
@@ -802,11 +748,11 @@ class AddeClient():
                 #         f'Invalid band argument {band}. When band is iter it has to have 2 elements: start_band end_band')
                 band = ' '.join(map(str, band))
 
-        assert day is not None, f'Invalid day {day}'
-        assert ':' in stime, f'Invalid stime {stime}'
-        assert ':' in etime, f'Invalid etime {etime}'
+        # assert day is not None, f'Invalid day {day}'
+        # assert ':' in stime, f'Invalid stime {stime}'
+        # assert ':' in etime, f'Invalid etime {etime}'
 
-        #nlines and nelems
+        # nlines and nelems
         if nlines is None:
             if nelems is not None:
                 raise Exception(f'Invalid arg neleems {nelems}. When nlines is  supplied nelems needs to be as well')
@@ -822,7 +768,7 @@ class AddeClient():
         except Exception as e:
             pass
 
-        #coord_start and coord_end
+        # coord_start and coord_end
         if coord_start_dim1 is None:
             if coord_start_dim2 is not None:
                 raise Exception(
@@ -832,52 +778,72 @@ class AddeClient():
                 raise Exception(
                     f'Invalid arg coord_start_dim1 {coord_start_dim1}. When coord_start_dim2 is supplied coord_start_dim1 needs to be as well')
 
-        #after these it is endured the doord_start
+        # after these it is endured the doord_start
         adir = None
-        if nlines is None and nelems is None: # make an adir req  and use the size of the image, This usualy means the aget was invoked directly
+
+        if nlines is None and nelems is None:  # make an adir req  and use the size of the image, This usualy means the aget was invoked directly
             # and no adir was issued. in this case it is OK to make an adir req
-            #adir will throw exceptions in case it get no data..
-
+            # adir will throw exceptions in case it get no data..
             adirs = await self.adir(
-                                group=group, descriptor=descriptor, position=position, band=band,
-                                day=day,stime=stime, etime=etime, aux='YES' #overwrite aux
-                              )
+                group=group, descriptor=descriptor, position=position, band=band,
+                day=day, stime=stime, etime=etime, aux='YES'  # overwrite aux
+            )
 
-            if len(adirs)> 1:
-                sd = sorted(adirs, key=lambda d: d.lines*d.elements, reverse=False )
+            if len(adirs) > 1:
+                sd = sorted(adirs, key=lambda d: d.lines * d.elements, reverse=False)
                 adir = sd[0]
 
             else:
                 adir = adirs[0]
             nlines, nelems = adir.size
+
+            # adjust mag when nlines, nelems were not supplied.
+            if lmag is not None:
+                lmagi = int(lmag)
+                if lmagi < 0:
+                    nlines = nlines // abs(
+                        lmagi)  # seems like whatever the sign of mag the aget does only downsampling??
+                # else:  # let's ignore pos mag aka blowup.
+                # nlines = nlines * abs(lmagi)
+                #    lmag = 1
+
+            if emag is not None:
+                emagi = int(emag)
+                if emagi < 0:
+                    nelems = nelems // abs(
+                        emagi)  # seems like whatever the sign of mag the aget does only downsampling??
+                # else:
+                # nelems = nelems * abs(emagi)
+                #    emag = 1
+
             logger.info(f'Image size is {adir.size}')
 
-            #nlines and nelems should be adujsted as per mag only in case they were not supplied.
+            # nlines and nelems should be adujsted as per mag only in case they were not supplied.
 
-
-        #handle coords
+        # handle coords
         if coord_type == 'E':
             if coord_pos == 'C':
-                if coord_start_dim1 is None and coord_start_dim2 is None: #user supplied nothing let's use the header
+                if coord_start_dim1 is None and coord_start_dim2 is None:  # user supplied nothing let's use the header
                     if adir is not None:
                         coord_start_dim1, coord_start_dim2 = adir.ssp
                     else:
-                        raise Exception(f'Please suply args coord_start_dim1 and coord_start_dim2 (latlon coordinates center of the image)')
+                        raise Exception(
+                            f'Please suply args coord_start_dim1 and coord_start_dim2 (latlon coordinates center of the image)')
 
             if coord_pos == 'U':
 
                 if coord_start_dim1 is None and coord_start_dim2 is None:
                     # user supplied nothing , image nav could be be used to compute the upper eft corenr latlon.
-                    #however thi is not feasible because of GEOS proejction
-                        raise Exception(
-                            f'Please suply args coord_start_dim1 and coord_start_dim2 (latlon coordinates upper left corner of the image)')
+                    # however thi is not feasible because of GEOS proejction
+                    raise Exception(
+                        f'Please suply args coord_start_dim1 and coord_start_dim2 (latlon coordinates upper left corner of the image)')
 
-        if coord_type == 'A': # easier at leats for me
+        if coord_type == 'A':  # easier at leats for me
             if coord_pos == 'C':
                 if coord_start_dim1 is None and coord_start_dim2 is None:  # user supplied nothing let's use the header
                     if adir is not None:
-                        coord_start_dim1 = adir.lines //2
-                        coord_start_dim2 = adir.elements //2
+                        coord_start_dim1 = adir.lines // 2
+                        coord_start_dim2 = adir.elements // 2
 
                     else:
                         raise Exception(
@@ -891,8 +857,8 @@ class AddeClient():
                 if coord_start_dim1 is None and coord_start_dim2 is None:
                     if adir is not None:
                         start_line, end_line, start_elem, end_elem = adir.imgbox
-                        coord_start_dim1 = (end_line-start_line)//2
-                        coord_start_dim2 = (end_elem-start_elem)//2
+                        coord_start_dim1 = (end_line - start_line) // 2
+                        coord_start_dim2 = (end_elem - start_elem) // 2
                     else:
                         raise Exception(
                             f'Please suply args coord_start_dim1 and coord_start_dim2 (image coordinates center of the image)')
@@ -905,220 +871,31 @@ class AddeClient():
                         raise Exception(
                             f'Please suply args coord_start_dim1 and coord_start_dim2 (image coordinates upper left corenr of the image)')
 
-
-        #unit
+        # unit
         if unit is None:
             if adir is not None:
                 unit = adir.get_units()
         spac = spac or 'X'
         cal = cal or 'X'
 
-
-
         req_text = self._compose_aget_req_text_(
             group=group, descriptor=descriptor, position=position,
-            coord_type=coord_type, coord_pos=coord_pos, coord_start_dim1=coord_start_dim1, coord_start_dim2=coord_start_dim2,
+            coord_type=coord_type, coord_pos=coord_pos, coord_start_dim1=coord_start_dim1,
+            coord_start_dim2=coord_start_dim2,
             nlines=nlines, nelems=nelems,
             day=day, stime=stime, etime=etime, band=band,
             unit=unit, spac=spac, cal=cal,
             lmag=lmag, emag=emag, doc=doc, aux=aux
 
         )
-
-
-
-        bin_resp = await self._query_server_(req_type='aget', req_text=req_text, timeout=self.aget_timeout,read_in_chunks=False)
+        bin_resp = await self._query_server_(req_type='aget', req_text=req_text, timeout=self.aget_timeout,
+                                             read_in_chunks=False)
+        if file:
+            ba = bytearray(bin_resp)
+            del ba[:4]
+            ba = ba.replace(ba[:4], b'\x00\x00\x00\x00')
+            with open(file, 'wb') as f:
+                f.write(ba)
+            logger.debug(f'Write file: {file}')
 
         return self._parse_aget_response_(bin_response=bin_resp)
-
-
-
-
-
-
-async def test(host=None,):
-    try:
-        d = (datetime.datetime.now() -datetime.timedelta(days=1)).date()
-        d = datetime.datetime.now().date()
-
-
-        async with AddeClient(host=host,) as c:
-
-            try:
-                print(c.json_content())
-                #print (c.group_names)
-
-                # adir_resp = await c.adir( group='RTGOESR', descriptor='RADFM3C07',position='ALL',
-                #                     band=7,day=d, stime='00:00', etime='23:59', aux='YES'
-                #
-                #)
-
-                # adir_resp = await c.adir( group='GVAR', descriptor='ALL',position=0,
-                #                      band=[3,4],day=d, stime='01:00', etime='02:00', aux='NO'
-                #
-                # )
-                # adir_resp = await c.adir( group='PUB', descriptor='GWNHEM04I2',position='ALL',
-                #
-                #                      band=[3,4],day='2018-06-17', stime='01:00', etime='02:00', aux='YES'
-                #
-                # )
-                #return adir_resp
-
-                # area_file = await c.aget(
-                #      group='RTGOESR', descriptor='FD', position=0,  # dataset args
-                #      coord_type='I', coord_pos='C', #coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #      nlines=None, nelems=None, # image props
-                #      day=d, stime='01:00', etime='02:00', band='ALL',
-                #      unit=None, spac=None, cal=None,
-                #      lmag=1, emag=1,
-                #      doc='YES', aux='YES',
-                #                          )
-                # area_file = await c.aget(group='PUB', descriptor='GWNHEM04I2', position='0',  # dataset args
-                #                          coord_type='A', coord_pos='U',  # coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #                          nlines=None, nelems=None,  # image props
-                #                          band=2,day=d, stime='23:00', etime='23:59',
-                #                          unit='RAW',cal='X', lmag=2,emag=2, #spac=2,
-                #                          doc='YES', aux='YES', )
-                # area_file = await c.aget(group='IMAGEALL', descriptor='GW-39', position='0',  # dataset args
-                #                          coord_type='A', coord_pos='U',
-                #                          # coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #                          nlines=None, nelems=None,  # image props
-                #                          band=2, day=d, stime='23:00', etime='23:59', unit='RAW', cal='X', lmag=1,
-                #                          emag=1,  # spac=2,
-                #                          doc='YES', aux='YES', )
-                # area_file = await c.aget(group='GVAR', descriptor='ALL', position=0,  # dataset args
-                #                          coord_type='A', coord_pos='C',
-                #                          # coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #                          nlines=None, nelems=None,  # image props
-                #                          band=[1,2,4], day=d, stime='23:00', etime='23:59', unit='RAW',# spac=2,
-                #                          cal='X', lmag=4, emag=4, doc='YES', aux='YES', )
-                # area_file = await c.aget(group='RTGOESR', descriptor='FD', position=0,  # dataset args
-                #                          coord_type='I', coord_pos='U',  # coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #                          nlines=None, nelems=None,  # image props
-                #                          day=d, stime='01:00', etime='02:00', band=[2],
-                #                          unit=None, spac=None, cal=None, lmag=-8,
-                #                          emag=-8, doc='YES', aux='YES', )
-                #
-                # area_file = await c.aget(group='RTGOESR', descriptor='RADFM3C07', position='ALL',  # dataset args
-                #                          coord_type='A', coord_pos='U',
-                #                          # coord_start_dim1=0, coord_start_dim2=0,  # coord args
-                #                          nlines=None, nelems=None,  # image props
-                #                          day=d, stime='01:00', etime='02:00', band=[7], unit=None, spac=None, cal=None,
-                #                          lmag=1, emag=1, doc='YES', aux='YES', )
-                #
-                # return area_file
-
-            except Exception as e:
-                efp = io.StringIO()
-                traceback.print_exc(file=efp)
-                message = efp.getvalue()
-                logger.error(message)
-                return host, e
-    except Exception as ee:
-        return host, ee
-
-
-
-async def collect(hosts=None):
-    tasks = list()
-    for h in hosts:
-        taks = asyncio.ensure_future(test(host=h))
-        tasks.append(taks)
-    return await asyncio.gather(*tasks, return_exceptions=True)
-
-
-if __name__ == '__main__':
-    logger = logging.getLogger()
-    logger.setLevel('DEBUG')
-    logger.name = n
-    adde_server = 'goeswest.unidata.ucar.edu'
-    adde_server = 'goeseast.unidata.ucar.edu'
-    #adde_server = 'satepsanone.nesdis.noaa.gov'
-    # adde_server = 'satepsdist1e.nesdis.noaa.gov'
-    # adde_server = 'tornado.geos.ulm.edu'
-    # adde_server = 'adde.ssec.wisc.edu'
-    # adde_server = 'OPENARCHIVE.SSEC.WISC.EDU'
-    #adde_server = 'adde.eumetsat.int'
-    # adde_server = 'atm.ucar.edu'
-    adde_server = 'amrc.ssec.wisc.edu'
-    # adde_server = 'himawari.ssec.wisc.edu'
-    # adde_server = 'fy2g.ssec.wisc.edu'
-    # adde_server = 'coms.ssec.wisc.edu'
-    # adde_server = 'indoex.ssec.wisc.edu'
-    # adde_server = 'KALPANA.SSEC.WISC.EDU'
-    # adde_server = 'EASTL.SSEC.WISC.EDU'
-    # adde_server = 'weather3.admin.niu.edu'
-    adde_server = 'adde.unidata.ucar.edu'
-    adde_server = 'geoarc.ssec.wisc.edu'
-    hosts = [
-        'goeswest.unidata.ucar.edu',
-        'lead.unidata.ucar.edu',
-        'atm.ucar.edu',
-        'motherlode.unidata.ucar.edu',
-        'adde.ssec.wisc.edu',
-        'satepsanone.nesdis.noaa.gov',
-        'geoarc.ssec.wisc.edu',
-        'openarchive.ssec.wisc.edu',
-        'amrc.ssec.wisc.edu',
-        'adde.ucar.edu',
-        'adde.unidata.ucar.edu',
-        'eastl.ssec.wisc.edu',
-        'himawari.ssec.wisc.edu'
-
-
-    ]
-    then = datetime.datetime.now()
-
-    loop = asyncio.get_event_loop()
-    try:
-        import pylab
-        f = collect(hosts=[adde_server])
-        #f = collect(hosts=hosts)
-        a = loop.run_until_complete(f)
-        for e in a:
-            try:
-                # for band in e.directory.bands:
-                #     band_chunk_start = 1 + (band - 1) * 18
-                #     # band_chunki_start = ninstr_bytes + (band-1)* n_calib_elements*4
-                #     band_chunk_end = band_chunk_start + 18
-                #
-                #     calib_info = e.cal[band_chunk_start:band_chunk_end]
-                #     print(dict(zip(range(1, len(calib_info) + 1), calib_info)))
-                d = e.data
-
-                for i, b in enumerate(d):
-                    pylab.title(f'Band {e.directory.bands[i]}')
-                    pylab.imshow(b)
-                    pylab.show()
-
-            except Exception as err:
-                if isinstance(err, typing.Iterable):
-                    host, em = e
-                    logger.info(f'Server {host} says {em}')
-                else:
-                    print(e)
-                    logger.error(err)
-
-    except KeyboardInterrupt as ke:
-
-
-        def shutdown_exception_handler(loop, context):
-
-            if "exception" not in context or not isinstance(context["exception"], asyncio.CancelledError):
-                loop.default_exception_handler(context)
-
-
-        loop.set_exception_handler(shutdown_exception_handler)
-        tasks = asyncio.gather(*asyncio.Task.all_tasks(loop=loop), loop=loop, return_exceptions=True)
-        tasks.add_done_callback(lambda t: loop.stop())
-        tasks.cancel()
-        while not tasks.done() and not loop.is_closed():
-            loop.run_forever()
-        pending = asyncio.Task.all_tasks()
-        for ptask in pending:
-            ptask.cancel()
-
-    finally:
-        loop.close()
-        now = datetime.datetime.now()
-        logger.info(f'Total run time {now-then}')
