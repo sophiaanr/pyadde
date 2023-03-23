@@ -13,7 +13,6 @@ import traceback
 from pyarea.directory import area_directory
 from pyarea.file import AreaFile
 import logging
-import pylab
 import sys
 
 _, n = os.path.split(os.path.abspath(__file__))
