@@ -461,7 +461,8 @@ class AddeClient():
                 band = ' '.join(map(str, band))
 
         position = str(position)
-
+        
+        time = None
         if stime:
             if not etime:
                 time = f'{stime} {stime}'
@@ -513,7 +514,7 @@ class AddeClient():
 
         band_str = f'BAND={band} ' if band else ''
         day_str = f'DAY={day} ' if day else ''
-        time_str = f'TIME={time} ' if day else ''
+        time_str = f'TIME={time} ' if time else ''
         aux_str = f'AUX={aux} ' if aux else ''
         req_text = f'{pos_str}{band_str}{day_str}{time_str}{aux_str}{extra_args_str}'
 
